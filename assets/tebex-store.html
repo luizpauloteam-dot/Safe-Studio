@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Safe Studio Store</title>
+  <style>
+    :root {
+      --bg: #0d0f12;
+      --card: #171b21;
+      --text: #f4f7fb;
+      --muted: #9aa6b2;
+      --accent: #00d084;
+      --accent-dark: #00a86b;
+      --border: #27313d;
+      --danger: #ff6b6b;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: radial-gradient(circle at top right, #18202b, var(--bg) 50%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .container {
+      width: min(1080px, 92vw);
+      margin: 32px auto 48px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 2rem;
+      letter-spacing: 0.02em;
+    }
+
+    .sub {
+      margin-top: 8px;
+      color: var(--muted);
+    }
+
+    .toolbar {
+      margin-top: 24px;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      background: rgba(23, 27, 33, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+    }
+
+    .toolbar input {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #10141a;
+      color: var(--text);
+      padding: 12px;
+      font-size: 1rem;
+      outline: none;
+    }
+
+    .toolbar button {
+      border: 0;
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-weight: 700;
+      cursor: pointer;
+      background: var(--accent);
+      color: #042212;
+    }
+
+    .toolbar button:hover {
+      background: var(--accent-dark);
+    }
+
+    .message {
+      margin-top: 12px;
+      color: var(--muted);
+      min-height: 1.2em;
+    }
+
+    .message.error {
+      color: var(--danger);
+    }
+
+    .categories {
+      margin-top: 28px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .category {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: rgba(23, 27, 33, 0.9);
+      padding: 18px;
+    }
+
+    .category h2 {
+      margin: 0 0 6px;
+      font-size: 1.2rem;
+    }
+
+    .category p {
+      margin: 0 0 12px;
+      color: var(--muted);
+    }
+
+    .package-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    }
+
+    .package {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #11161d;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .package-name {
+      font-size: 1rem;
+      font-weight: 700;
+    }
+
+    .package-description {
+      color: var(--muted);
+      font-size: 0.9rem;
+      min-height: 2.4em;
+    }
+
+    .price {
+      font-weight: 700;
+      color: #d9ffe9;
+    }
+
+    .package button {
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #042212;
+      padding: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .package button[disabled] {
+      opacity: 0.6;
+      cursor: wait;
+    }
+
+    @media (max-width: 700px) {
+      .toolbar {
+        grid-template-columns: 1fr;
+      }
+
+      .toolbar button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Safe Studio Store</h1>
+    <p class="sub">Compre no checkout Tebex e depois use <code>/claim</code> no Discord para resgatar seu cargo.</p>
+
+    <div class="toolbar">
+      <input id="discordId" placeholder="Seu Discord ID (17-20 digitos)" maxlength="20" />
+      <button id="reloadBtn" type="button">Atualizar produtos</button>
+    </div>
+
+    <div id="message" class="message"></div>
+    <div id="categories" class="categories"></div>
+  </div>
+
+  <script>
+    const categoriesContainer = document.getElementById('categories');
+    const messageElement = document.getElementById('message');
+    const discordIdInput = document.getElementById('discordId');
+    const reloadButton = document.getElementById('reloadBtn');
+
+    function setMessage(text, isError = false) {
+      messageElement.textContent = text || '';
+      messageElement.classList.toggle('error', Boolean(isError));
+    }
+
+    function formatPrice(pkg) {
+      const firstPrice = pkg?.total_price || pkg?.price || pkg?.base_price;
+      if (!firstPrice) return 'Preco indisponivel';
+
+      const amount = firstPrice.amount ?? firstPrice;
+      const currency = firstPrice.currency ?? pkg?.currency ?? '';
+
+      if (typeof amount === 'number' && currency) {
+        try {
+          return new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(amount / 100);
+        } catch {
+          return `${currency} ${amount}`;
+        }
+      }
+
+      return String(amount);
+    }
+
+    function validateDiscordId(discordId) {
+      return /^\d{17,20}$/.test(discordId);
+    }
+
+    async function createCheckout(packageId, button) {
+      const discordId = discordIdInput.value.trim();
+
+      if (!validateDiscordId(discordId)) {
+        setMessage('Informe um Discord ID valido para continuar.', true);
+        return;
+      }
+
+      button.disabled = true;
+      setMessage('Criando checkout...');
+
+      try {
+        const response = await fetch('/api/tebex/checkout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            package_id: packageId,
+            discord_id: discordId,
+          }),
+        });
+
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload?.error || 'Nao foi possivel iniciar o checkout.');
+        }
+
+        const checkoutUrl = payload.checkout_url;
+
+        if (!checkoutUrl) {
+          throw new Error('Checkout nao retornou URL valida.');
+        }
+
+        setMessage('Redirecionando para o Tebex...');
+        window.location.href = checkoutUrl;
+      } catch (error) {
+        setMessage(error.message || 'Falha ao criar checkout.', true);
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    function createPackageCard(pkg) {
+      const card = document.createElement('article');
+      card.className = 'package';
+
+      const name = document.createElement('div');
+      name.className = 'package-name';
+      name.textContent = pkg.name || `Pacote ${pkg.id}`;
+
+      const description = document.createElement('div');
+      description.className = 'package-description';
+      description.textContent = pkg.description || 'Sem descricao.';
+
+      const price = document.createElement('div');
+      price.className = 'price';
+      price.textContent = formatPrice(pkg);
+
+      const buyButton = document.createElement('button');
+      buyButton.type = 'button';
+      buyButton.textContent = 'Comprar';
+      buyButton.addEventListener('click', () => createCheckout(pkg.id, buyButton));
+
+      card.append(name, description, price, buyButton);
+      return card;
+    }
+
+    function renderCategories(categories) {
+      categoriesContainer.innerHTML = '';
+
+      if (!Array.isArray(categories) || categories.length === 0) {
+        setMessage('Nenhuma categoria encontrada.', true);
+        return;
+      }
+
+      setMessage('');
+
+      categories.forEach((category) => {
+        const section = document.createElement('section');
+        section.className = 'category';
+
+        const title = document.createElement('h2');
+        title.textContent = category.name || `Categoria ${category.id}`;
+
+        const description = document.createElement('p');
+        description.textContent = category.description || 'Sem descricao.';
+
+        const grid = document.createElement('div');
+        grid.className = 'package-grid';
+
+        const packages = Array.isArray(category.packages) ? category.packages : [];
+
+        packages.forEach((pkg) => {
+          grid.appendChild(createPackageCard(pkg));
+        });
+
+        section.append(title, description, grid);
+        categoriesContainer.appendChild(section);
+      });
+    }
+
+    async function loadCategories() {
+      setMessage('Carregando produtos...');
+
+      try {
+        const response = await fetch('/api/tebex/categories?includePackages=1');
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload?.error || 'Falha ao carregar produtos.');
+        }
+
+        const categories = payload?.data;
+        renderCategories(categories);
+      } catch (error) {
+        categoriesContainer.innerHTML = '';
+        setMessage(error.message || 'Falha ao carregar produtos.', true);
+      }
+    }
+
+    reloadButton.addEventListener('click', loadCategories);
+    loadCategories();
+  </script>
+</body>
+</html>
